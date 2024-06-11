@@ -27,7 +27,21 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
          bookingId: booking_id
         })
 
+    Process.send_after(self(), :timeout1, 10000)
+
     {:noreply, %{request: request, contacted_taxi: taxi}}
+
+  end
+
+  def handle_info(:timeout1, %{request: request, contacted_taxi: taxi = state}) do
+
+    %{"username" => customer} = request
+    %{nickname: nickname} = taxi
+
+
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> customer, "booking_request", %{msg: "Any taxi was fount at this moment"})
+    TaxiBeWeb.Endpoint.broadcast("driver:" <> nickname, "booking_request", %{msg: "Time out"})
+    {:noreply, state}
 
   end
 
@@ -55,6 +69,7 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
   def notify_customer_ride_arrival_time({request, time}) do
 
     %{"username" => customer} = request
+    %{"driver" => driver} = request
     TaxiBeWeb.Endpoint.broadcast("customer:" <> customer, "booking_request", %{msg: "Your taxi will arrives at: #{time} minutes" })
 
   end
