@@ -9,6 +9,7 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
   def init(request) do
     Process.send(self(), :step1, [:nosuspend])
     {:ok, %{request: request}}
+    #{:ok, %{request: request, state1: Good}}
   end
 
   def handle_info(:step1, %{request: request}) do
@@ -77,18 +78,20 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
 
   end
 
-  def handle_info(:timeout1, state) do
+  def handle_info(:timeout1, %{contacted_taxi: taxi = state}) do
 
     Process.send(self(), :block1, [:nosuspend])
+
     {:noreply, state}
 
   end
 
-  def handle_cast({:process_accept, driver_username}, %{request: request = state}) do
+  def handle_cast({:process_accept, driver_username}, %{request: request, contacted_taxi: taxi = state}) do
 
     IO.inspect(request)
     %{"username" => username} = request
-    TaxiBeWeb.Endpoint.broadcast("customer: " <> username, "booking_request", %{msg: "Tu taxi esta en camino"})
+
+    TaxiBeWeb.Endpoint.broadcast("customer: " <> username, "booking_request", %{msg: "#{driver_username} is on the way"})
 
     {:noreply, state}
 
