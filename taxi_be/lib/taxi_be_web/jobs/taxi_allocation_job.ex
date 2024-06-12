@@ -108,6 +108,11 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
     {:noreply, state |> Map.put(:status, Accepted)}
   end
 
+  def handle_cast({:process_reject, driver_username},state) do
+    Process.send(self(), :block1, [:nosuspend])
+    {:noreply, state}
+  end
+
   def compute_ride_fare(request) do
 
     %{
