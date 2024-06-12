@@ -16,6 +16,7 @@ function Driver(props) {
       setBookingId(data.bookingId);
       setVisible(true);
     });
+    channel.on("timeout", data => setVisible(false));
     channel.join();
   },[props]);
 
