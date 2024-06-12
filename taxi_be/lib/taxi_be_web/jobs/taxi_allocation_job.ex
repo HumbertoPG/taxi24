@@ -61,7 +61,7 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
 
       })
 
-      Process.send_after(self(),:timeout1, 5000)
+      Process.send_after(self(), :timeout1, 5000)
 
       {:noreply, %{request: request, candidates: tl(taxis), contacted_taxi: taxi, status: NotAccepted}}
 
@@ -77,14 +77,16 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
   end
 
   def handle_info(:timeout1, %{request: _request, contacted_taxi: _taxi, status: NotAccepted} = state) do
+
     IO.inspect(_taxi)
     %{nickname: nickname} = _taxi
     TaxiBeWeb.Endpoint.broadcast("driver:"<> nickname, "booking_request", %{msg: "Time out"})
     Process.send(self(), :block1, [:nosuspend])
     {:noreply, state}
+
   end
 
-  def handle_info(:timeout1, %{request: _request, status: Accepted} = state) do
+  def handle_info(:timeout1, state) do
     {:noreply, state}
   end
 
@@ -108,9 +110,11 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
     {:noreply, state |> Map.put(:status, Accepted)}
   end
 
-  def handle_cast({:process_reject, driver_username},state) do
+  def handle_cast({:process_reject, driver_username}, state) do
+
     Process.send(self(), :block1, [:nosuspend])
     {:noreply, state}
+
   end
 
   def compute_ride_fare(request) do

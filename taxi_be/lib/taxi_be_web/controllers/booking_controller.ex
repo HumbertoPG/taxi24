@@ -26,8 +26,9 @@ defmodule TaxiBeWeb.BookingController do
 
   end
 
-  def update(conn, %{"action" => "reject", "username" => username, "id" => _id}) do
+  def update(conn, %{"action" => "reject", "username" => username, "id" => id}) do
 
+    GenServer.cast(id |> String.to_atom, {:process_reject, username})
     IO.inspect("'#{username}' is rejecting a booking request")
     json(conn, %{msg: "We will process your rejection"})
 
