@@ -38,15 +38,13 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
 
     Process.send_after(self(), :timeout1, 10000)
 
-    {:noreply, %{request: request, candidates: taxis, status: Waiting}}
+    {:noreply, %{request: request, candidates: taxis, status: WaitingForAcceptance}}
 
   end
 
-  def handle_info(:timeout1, %{request: request, candidates: taxis, status: Waiting} = state) do
+  def handle_info(:timeout1, %{request: request, candidates: taxis, status: WaitingForAcceptance} = state) do
 
     %{"username" => username} = request
-    IO.inspect(username)
-    IO.inspect(taxis)
 
     TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Any taxi was found at thi moment"})
 
@@ -56,15 +54,28 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
 
     end)
 
-    {:noreply, state}
+    {:noreply, state |> Map.put(:status, TimeOut)}
 
   end
 
-  def handle_info(:timeout1, %{request: request, candidates: taxis, status: Accepted} = state) do
+  def handle_info(:timeout1, %{request: request, candidates: taxis} = state) do
     {:noreply, state}
   end
 
-  def handle_cast({:process_accept, driver_username}, %{request: request, candidates: taxis, status: Waiting} = state) do
+  def handle_info(:penalty, %{request: request, candidates: taxis, status: Accepted} = state) do
+
+    %{"username" => username} = request
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "If you decide cancel the ride will have a penalty of 20$"})
+
+    {:noreply, state |> Map.put(:status, TimeToPenalty)}
+
+  end
+
+  def handle_info(:penalty, %{request: request, candidates: taxis} = state) do
+    {:noreply, state}
+  end
+
+  def handle_cast({:process_accept, driver_username}, %{request: request, candidates: taxis, status: WaitingForAcceptance} = state) do
 
     taxi = Enum.find(taxis, fn taxi -> taxi.nickname == driver_username end)
 
@@ -78,17 +89,91 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
     %{"username" => username} = request
     TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "#{driver_username} is on the way. Estimate time for arrival: #{Float.ceil(duration / 60, 1)} minutes"})
 
+    Process.send_after(self(), :penalty, trunc((duration / 60) * 100))
+
     {:noreply, state |> Map.put(:status, Accepted)}
 
   end
 
-  def handle_cast({:process_accept, driver_username}, %{request: request, candidates: taxis, status: Accepted} = state) do
+  def handle_cast({:process_accept, driver_username}, state) do
 
     {:noreply, state}
 
   end
 
   def handle_cast({:process_reject, driver_username}, state) do
+
+    {:noreply, state}
+
+  end
+
+  def handle_cast({:process_cancel, driver_username}, %{request: request, candidates: taxis, status: WaitingForAcceptance} = state) do
+
+    Enum.map(taxis, fn taxi ->
+
+      TaxiBeWeb.Endpoint.broadcast("driver:" <> taxi.nickname, "booking_request", %{msg: "Ride is no longer available"})
+
+    end)
+
+    %{"username" => username} = request
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Ride was canceled with no penalty for this action"})
+
+    {:noreply, state |> Map.put(:status, Canceled)}
+
+  end
+
+  def handle_cast({:process_cancel, driver_username}, %{request: request, candidates: taxis, status: Accepted} = state) do
+
+    %{"username" => username} = request
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Ride was canceled with no penalty"})
+
+    {:noreply, state |> Map.put(:status, Canceled)}
+
+  end
+
+  def handle_cast({:process_cancel, driver_username}, %{request: request, candidates: taxis, status: TimeToPenalty} = state) do
+
+    %{"username" => username} = request
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Ride was canceled with 20$ of penalty"})
+
+    {:noreply, state |> Map.put(:status, Canceled)}
+
+  end
+
+  def handle_cast({:process_cancel, driver_username}, %{request: request, candidates: taxis, status: TaxiArrived} = state) do
+
+    %{"username" => username} = request
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Driver was alredy with you. Penalty of 40$ was changed on your card"})
+
+    {:noreply, state |> Map.put(:status, Canceled)}
+
+  end
+
+  def handle_cast({:notify_arrival, driver_username}, %{request: request, status: TimeToPenalty} = state) do
+
+    %{"username" => username} = request
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "#{driver_username} has arrived"})
+
+    {:noreply, state |> Map.put(:status, TaxiArrived)}
+
+  end
+
+  def handle_cast({:notify_arrival, driver_username}, state) do
+
+    {:noreply, state}
+
+  end
+
+  def handle_cast({:start_trip, driver_username}, %{request: request, status: TaxiArrived} = state) do
+
+    %{"username" => username} = request
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "your ride has begun fasten your seatbelt"})
+
+    {:noreply, state |> Map.put(:status, RideStarted)}
+
+  end
+
+  def handle_cast({:start_trip, driver_username}, state) do
 
     {:noreply, state}
 
