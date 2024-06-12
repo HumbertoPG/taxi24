@@ -1,5 +1,4 @@
 defmodule TaxiBeWeb.TaxiAllocationJob do
-
   use GenServer
 
   def start_link(request, name) do
@@ -9,97 +8,87 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
   def init(request) do
     Process.send(self(), :step1, [:nosuspend])
     {:ok, %{request: request}}
-    #{:ok, %{request: request, state1: Good}}
   end
 
   def handle_info(:step1, %{request: request}) do
-    # Select a taxi
 
     task = Task.async(fn -> compute_ride_fare(request) |> notify_customer_ride_fare() end)
-    taxis = select_candidate_taxis(request)
     Task.await(task)
 
-    Process.send(self(), :block1, [:nosuspend])
+    taxis = candidate_taxis()
 
-    # Enum.map(select_candidate_taxis((request)), fn taxi ->
+    Enum.map(candidate_taxis(), fn taxi ->
 
-    # %{
-
-    #   "pickup_address" => pickup_address,
-    #   "dropoff_address" => dropoff_address,
-    #   "booking_id" => booking_id
-
-    # } = request
-    # TaxiBeWeb.Endpoint.broadcast(
-    #   "driver:" <> taxi.nickname,
-    #   "booking_request",
-    #    %{
-    #      msg: "Viaje de '#{pickup_address}' a '#{dropoff_address}'",
-    #      bookingId: booking_id
-    #     })
-
-    #     Process.send_after(self(), :timeout1, 20000)
-
-    #    end)
-
-    {:noreply, %{request: request, candidates: taxis}}
-
-  end
-
-  def handle_info(:block1, %{request: request, candidates: taxis} = state) do
-
-    if taxis != [] do
-
-      taxi = hd(taxis)
-
-      %{
+    %{
 
       "pickup_address" => pickup_address,
       "dropoff_address" => dropoff_address,
       "booking_id" => booking_id
 
-      } = request
-        TaxiBeWeb.Endpoint.broadcast(
-        "driver:" <> taxi.nickname,
-        "booking_request",
-        %{
-          msg: "Viaje de '#{pickup_address}' a '#{dropoff_address}'",
-          bookingId: booking_id
-      })
+    } = request
+    TaxiBeWeb.Endpoint.broadcast(
+      "driver:" <> taxi.nickname,
+      "booking_request",
+       %{
+         msg: "Viaje de '#{pickup_address}' a '#{dropoff_address}'",
+         bookingId: booking_id
+        })
 
-      Process.send_after(self(), :timeout1, 20000)
+    end)
 
-      {:noreply, %{request: request, candidates: tl(taxis), contacted_taxi: taxi}}
+    Process.send_after(self(), :timeout1, 10000)
 
-    else
-      {:noreply, state}
-    end
-
+    {:noreply, %{request: request, candidates: taxis, status: Waiting}}
 
   end
 
-  def handle_info(:timeout1, %{contacted_taxi: taxi = state}) do
+  def handle_info(:timeout1, %{request: request, candidates: taxis, status: Waiting} = state) do
 
-    Process.send(self(), :block1, [:nosuspend])
+    %{"username" => username} = request
+    IO.inspect(username)
+    IO.inspect(taxis)
+
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Any taxi was found at thi moment"})
+
+    Enum.map(taxis, fn taxi ->
+
+      TaxiBeWeb.Endpoint.broadcast("driver:" <> taxi.nickname, "booking_request", %{msg: "Time out"})
+
+    end)
 
     {:noreply, state}
 
   end
 
-  def handle_cast({:process_accept, driver_username}, %{request: request, contacted_taxi: taxi = state}) do
+  def handle_info(:timeout1, %{request: request, candidates: taxis, status: Accepted} = state) do
+    {:noreply, state}
+  end
 
-    IO.inspect(request)
+  def handle_cast({:process_accept, driver_username}, %{request: request, candidates: taxis, status: Waiting} = state) do
+
+    taxi = Enum.find(taxis, fn taxi -> taxi.nickname == driver_username end)
+
+    %{"pickup_address" => pickup_address} = request
+
+    coord1 = TaxiBeWeb.Geolocator.geocode(pickup_address)
+    coord2 = {:ok, [taxi.longitude, taxi.latitude]}
+
+    {distance, duration} = TaxiBeWeb.Geolocator.distance_and_duration(coord1, coord2)
+
     %{"username" => username} = request
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "#{driver_username} is on the way. Estimate time for arrival: #{Float.ceil(duration / 60, 1)} minutes"})
 
-    TaxiBeWeb.Endpoint.broadcast("customer: " <> username, "booking_request", %{msg: "#{driver_username} is on the way"})
+    {:noreply, state |> Map.put(:status, Accepted)}
+
+  end
+
+  def handle_cast({:process_accept, driver_username}, %{request: request, candidates: taxis, status: Accepted} = state) do
 
     {:noreply, state}
 
   end
 
   def handle_cast({:process_reject, driver_username}, state) do
-
-    Process.send(self(), :block1, [:nosuspend])
 
     {:noreply, state}
 
@@ -112,26 +101,26 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
     coord1 = TaxiBeWeb.Geolocator.geocode(pickup_address)
     coord2 = TaxiBeWeb.Geolocator.geocode(dropoff_address)
 
-    {distance, _duration} = TaxiBeWeb.Geolocator.distance_and_duration(coord1, coord2)
-    {request, Float.ceil(distance/80)}
+    {distance, duration} = TaxiBeWeb.Geolocator.distance_and_duration(coord1, coord2)
+    {request, Float.ceil(distance/80), duration}
 
   end
 
-  def notify_customer_ride_fare({request, fare}) do
+  def notify_customer_ride_fare({request, fare, duration}) do
 
     %{"username" => customer} = request
-    TaxiBeWeb.Endpoint.broadcast("customer:" <> customer, "booking_request", %{msg: "Ride fare: #{fare}"})
+
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> customer, "booking_request", %{msg: "Ride fare: #{fare}. Ride estimated time: #{duration}"})
 
   end
 
-  def select_candidate_taxis(%{"pickup_address" => _pickup_address}) do
-
+  def candidate_taxis() do
     [
+
       %{nickname: "frodo", latitude: 19.0319783, longitude: -98.2349368}, # Angelopolis
       %{nickname: "samwise", latitude: 19.0061167, longitude: -98.2697737}, # Arcangeles
       %{nickname: "merry", latitude: 19.0092933, longitude: -98.2473716} # Paseo Destino
+
     ]
-
   end
-
 end
