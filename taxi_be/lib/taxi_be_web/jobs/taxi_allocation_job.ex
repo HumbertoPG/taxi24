@@ -16,8 +16,21 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
   def handle_info(:step1, %{request: request}) do
 
     task = Task.async(fn -> compute_ride_fare(request) |> notify_customer_ride_fare() end)
-    taxis = select_candidate_taxis(request)
     Task.await(task)
+
+    %{"pickup_address" => pickup_address} = request
+
+    clientcoord = TaxiBeWeb.Geolocator.geocode(pickup_address)
+    {_, clientpos} = clientcoord
+    taxisTmp = select_candidate_taxis(request)
+
+    positions = taxisTmp |> Enum.map(fn taxi -> [taxi.longitude, taxi.latitude] end)
+    taxi_relative_positions = TaxiBeWeb.Geolocator.destination_and_duration(positions, clientpos)
+    taxis =
+      Enum.zip([taxisTmp, taxi_relative_positions])
+      |> Enum.sort(:desc)
+      |> IO.inspect()
+      |> Enum.map(fn {item, _} -> item end)
 
     Process.send(self(), :block1, [:nosuspend])
 
@@ -76,25 +89,19 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
   end
 
   def handle_cast({:process_accept, driver_username}, %{request: request, contacted_taxi: contacted_taxi, status: NotAccepted} = state) do
+
     %{"pickup_address" => pickup_address} = request
     %{"username" => username} = request
 
-    coord2 = TaxiBeWeb.Geolocator.geocode(pickup_address)
-    IO.inspect(coord2)
+    coord1 = TaxiBeWeb.Geolocator.geocode(pickup_address)
+    coord2 = {:ok, [contacted_taxi.longitude, contacted_taxi.latitude]}
 
-    case coord2 do
-      {:ok, coord2_list} ->
-        taxi_coords = {contacted_taxi.latitude, contacted_taxi.longitude}
-        {distance, duration} = TaxiBeWeb.Geolocator.distance_and_duration(taxi_coords, coord2_list)
+    {distance, duration} = TaxiBeWeb.Geolocator.distance_and_duration(coord1, coord2)
 
-        TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Taxi is on the way. Estimated time: #{duration} minutes."})
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "#{driver_username} is on the way. Estimated time for arrival: #{Float.ceil(duration / 60, 0)}" })
 
-        {:noreply, state |> Map.put(:status, Accepted)}
+    {:noreply, state |> Map.put(:status, Accepted)}
 
-      {:error, _reason} ->
-        TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Could not find the coordinates of the pickup address."})
-        {:noreply, state}
-    end
   end
 
   def handle_cast({:process_accept, driver_username}, %{request: request, status: Accepted} = state) do
