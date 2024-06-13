@@ -29,16 +29,15 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
     taxis =
       Enum.zip([taxisTmp, taxi_relative_positions])
       |> Enum.sort(:desc)
-      |> IO.inspect()
       |> Enum.map(fn {item, _} -> item end)
 
     Process.send(self(), :block1, [:nosuspend])
 
-    {:noreply, %{request: request, candidates: taxis, status: NotAccepted}}
+    {:noreply, %{request: request, candidates: taxis, status: WaitingForAcceptance}}
 
   end
 
-  def handle_info(:block1, %{request: request, candidates: taxis, status: NotAccepted} = state) do
+  def handle_info(:block1, %{request: request, candidates: taxis} = state) do
 
     if taxis != [] do
 
@@ -61,27 +60,27 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
 
       })
 
-      Process.send_after(self(), :timeout1, 5000)
+      Process.send_after(self(), :timeout1, 10000)
 
-      {:noreply, %{request: request, candidates: tl(taxis), contacted_taxi: taxi, status: NotAccepted}}
+      {:noreply, %{request: request, candidates: tl(taxis), contacted_taxi: taxi, status: WaitingForAcceptance}}
 
     else
 
       %{"username" => username} = request
-      IO.inspect(username )
+
       TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "No taxis found at this moment" })
-      {:noreply, %{state | contacted_taxi: ""}}
+      {:noreply, state |> Map.put(:status, NoTaxis)}
 
     end
 
   end
 
-  def handle_info(:timeout1, %{request: _request, contacted_taxi: _taxi, status: NotAccepted} = state) do
+  def handle_info(:timeout1, %{request: request, contacted_taxi: taxi, status: WaitingForAcceptance} = state) do
 
-    IO.inspect(_taxi)
-    %{nickname: nickname} = _taxi
+    %{nickname: nickname} = taxi
     TaxiBeWeb.Endpoint.broadcast("driver:"<> nickname, "booking_request", %{msg: "Time out"})
     Process.send(self(), :block1, [:nosuspend])
+
     {:noreply, state}
 
   end
@@ -90,7 +89,7 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
     {:noreply, state}
   end
 
-  def handle_cast({:process_accept, driver_username}, %{request: request, contacted_taxi: contacted_taxi, status: NotAccepted} = state) do
+  def handle_cast({:process_accept, driver_username}, %{request: request, contacted_taxi: contacted_taxi, status: WaitingForAcceptance} = state) do
 
     %{"pickup_address" => pickup_address} = request
     %{"username" => username} = request
@@ -100,7 +99,7 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
 
     {distance, duration} = TaxiBeWeb.Geolocator.distance_and_duration(coord1, coord2)
 
-    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "#{driver_username} is on the way. Estimated time for arrival: #{Float.ceil(duration / 60, 0)}" })
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "#{driver_username} is on the way. Estimated time for arrival: #{Float.ceil(duration / 60, 0)} minutes"})
 
     {:noreply, state |> Map.put(:status, Accepted)}
 
@@ -126,8 +125,7 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
 
     coord1 = TaxiBeWeb.Geolocator.geocode(pickup_address)
     coord2 = TaxiBeWeb.Geolocator.geocode(dropoff_address)
-    IO.inspect(coord1)
-    IO.inspect(coord2)
+
     {distance, duration} = TaxiBeWeb.Geolocator.distance_and_duration(coord1, coord2)
     {request, Float.ceil(distance/300), Float.ceil(duration / 110, 0)}
 
