@@ -45,8 +45,6 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
   def handle_info(:timeout1, %{request: request, candidates: taxis, status: Waiting} = state) do
 
     %{"username" => username} = request
-    IO.inspect(username)
-    IO.inspect(taxis)
 
     TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Any taxi was found at thi moment"})
 
@@ -88,9 +86,9 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
 
   end
 
-  def handle_cast({:process_reject, driver_username}, state) do
+  def handle_cast({:process_reject, driver_username}, %{candidates: taxis} = state) do
 
-    {:noreply, state}
+    {:noreply, %{candidates: taxis} = state}
 
   end
 
