@@ -40,11 +40,4 @@ defmodule TaxiBeWeb.BookingController do
 
   end
 
-  def update(conn, %{"action" => "start_trip", "username" => username, "id" => id}) do
-
-    GenServer.cast(id |> String.to_atom, {:start_trip, username})
-    json(conn, %{msg: "We will process your meesage"})
-
-  end
-
 end

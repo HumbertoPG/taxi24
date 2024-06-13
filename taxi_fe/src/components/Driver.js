@@ -42,14 +42,6 @@ function Driver(props) {
     }).then(resp => setArrivalNotified(true));
   };
 
-  let startTrip = () => {
-    fetch(`http://localhost:4000/api/bookings/${bookingId}`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({action: "start_trip", username: props.username})
-    }).then(resp => setArrivalNotified(false));
-  };
-
   return (
     <div style={{textAlign: "center", borderStyle: "solid"}}>
         Driver: {props.username}
@@ -57,9 +49,6 @@ function Driver(props) {
           <Grid item xl="2" container justifyContent="center">
             {accepted && !arrivalNotified && (
               <Button onClick={notifyArrival} variant="outlined" color="secondary">Notify arrival</Button>
-            )}
-            {arrivalNotified && (
-              <Button onClick={startTrip} variant="outlined" color="primary">Start Trip</Button>
             )}
           </Grid>
           <Grid item style={{backgroundColor: "lavender", height: "100px"}} xl="10" container justifyContent="center" alignItems="center">

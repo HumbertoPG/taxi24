@@ -75,6 +75,18 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
     {:noreply, state}
   end
 
+  def handle_info(:startRide, %{request: request, status: TaxiArrived} = state) do
+
+    %{"username" => username} = request
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Your ride has begun fasten your seatbelt"})
+    {:noreply, state |> Map.put(:status, RideStarted)}
+
+  end
+
+  def handle_info(:startRide, %{request: request, candidates: taxis} = state) do
+    {:noreply, state}
+  end
+
   def handle_cast({:process_accept, driver_username}, %{request: request, candidates: taxis, status: WaitingForAcceptance} = state) do
 
     taxi = Enum.find(taxis, fn taxi -> taxi.nickname == driver_username end)
@@ -89,7 +101,7 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
     %{"username" => username} = request
     TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "#{driver_username} is on the way. Estimate time for arrival: #{Float.ceil(duration / 60, 1)} minutes"})
 
-    Process.send_after(self(), :penalty, trunc((duration / 60) * 100))
+    Process.send_after(self(), :penalty, 10000)
 
     {:noreply, state |> Map.put(:status, Accepted)}
 
@@ -143,9 +155,20 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
   def handle_cast({:process_cancel, driver_username}, %{request: request, candidates: taxis, status: TaxiArrived} = state) do
 
     %{"username" => username} = request
-    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Driver was alredy with you. Penalty of 40$ was changed on your card"})
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "Driver was alredy with you. Total fare will be charged"})
 
     {:noreply, state |> Map.put(:status, Canceled)}
+
+  end
+
+  def handle_cast({:notify_arrival, driver_username}, %{request: request, status: Accepted} = state) do
+
+    %{"username" => username} = request
+    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "#{driver_username} has arrived"})
+
+    Process.send_after(self(), :startRide, 5000)
+
+    {:noreply, state |> Map.put(:status, TaxiArrived)}
 
   end
 
@@ -154,26 +177,13 @@ defmodule TaxiBeWeb.TaxiAllocationJob do
     %{"username" => username} = request
     TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "#{driver_username} has arrived"})
 
+    Process.send_after(self(), :startRide, 5000)
+
     {:noreply, state |> Map.put(:status, TaxiArrived)}
 
   end
 
-  def handle_cast({:notify_arrival, driver_username}, state) do
-
-    {:noreply, state}
-
-  end
-
-  def handle_cast({:start_trip, driver_username}, %{request: request, status: TaxiArrived} = state) do
-
-    %{"username" => username} = request
-    TaxiBeWeb.Endpoint.broadcast("customer:" <> username, "booking_request", %{msg: "your ride has begun fasten your seatbelt"})
-
-    {:noreply, state |> Map.put(:status, RideStarted)}
-
-  end
-
-  def handle_cast({:start_trip, driver_username}, state) do
+  def handle_cast({:notify_arrival, driver_username}, %{request: request} = state) do
 
     {:noreply, state}
 
